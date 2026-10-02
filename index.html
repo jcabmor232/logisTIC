@@ -135,7 +135,7 @@
       gap: 12px;
       width: 100%;
       flex: 1;
-      min-height: 0; /* Permite scroll flex */
+      min-height: 0;
     }
 
     .canvas-card {
@@ -164,7 +164,7 @@
     }
 
     .side-panel {
-      width: 340px;
+      width: 350px;
       flex-shrink: 0;
       display: flex;
       flex-direction: column;
@@ -187,7 +187,7 @@
       padding-bottom: 4px;
     }
 
-    /* SELECCIÓN DE ACCIONES */
+    /* SELECCIÓN DE ACCIONES CON MULTI-SELECCIÓN (MÁX 2) */
     .action-box {
       display: flex;
       flex-direction: column;
@@ -199,13 +199,15 @@
       font-weight: bold;
       color: #7f8c8d;
       text-transform: uppercase;
+      display: flex;
+      justify-content: space-between;
     }
 
     .pkg-selector {
       display: flex;
       flex-direction: column;
       gap: 5px;
-      max-height: 160px;
+      max-height: 180px;
       overflow-y: auto;
     }
 
@@ -220,6 +222,7 @@
       font-size: 0.85rem;
       font-weight: 600;
       transition: all 0.2s;
+      user-select: none;
     }
 
     .pkg-option:hover {
@@ -438,12 +441,17 @@
         <h3 id="currentCityHeader">📍 Ciudad Actual: Blanco</h3>
         <div class="action-box">
           
-          <div class="action-step">1. Elegir mercancía para el camión</div>
+          <div class="action-step">
+            <span>1. Cargar Mercancía</span>
+            <span id="loadCounter" style="color:#27ae60;">(0 / 2 selec.)</span>
+          </div>
           <div class="pkg-selector" id="pkgSelector">
             <!-- Dinámico -->
           </div>
 
-          <div class="action-step" style="margin-top: 6px;">2. Seleccionar Ciudad de Destino</div>
+          <div class="action-step" style="margin-top: 6px;">
+            <span>2. Seleccionar Destino</span>
+          </div>
           <div class="dest-buttons" id="destButtons">
             <!-- Dinámico -->
           </div>
@@ -530,7 +538,7 @@
 
     const CANVAS_SIZE = 800;
     const CENTER = { x: CANVAS_SIZE / 2, y: CANVAS_SIZE / 2 };
-    const OFFSET = 250; // Mayor distancia para ocupar mejor el lienzo
+    const OFFSET = 250;
 
     const cityPositions = {
       'B': { x: CENTER.x,          y: CENTER.y,          angle: -Math.PI / 2 },
@@ -545,7 +553,7 @@
     let truck = {
       currentCity: 'B',
       targetCity: null,
-      cargo: null,
+      cargo: [], // Array de hasta 2 paquetes
       progress: 0,
       speed: 1.0
     };
@@ -557,13 +565,13 @@
     let totalTrips = 0;
     let totalDistanceKm = 0;
 
-    let selectedPackageToLoad = null;
+    let selectedPackagesToLoad = []; // Array para multi-selección previa (máx 2)
 
     // --- PANTALLA COMPLETA ---
     function toggleFullscreen() {
       if (!document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(err => {
-          alert(`Error al intentar activar pantalla completa: ${err.message}`);
+          alert(`Error al activar pantalla completa: ${err.message}`);
         });
       } else {
         if (document.exitFullscreen) {
@@ -636,10 +644,10 @@
 
       truck.currentCity = 'B';
       truck.targetCity = null;
-      truck.cargo = null;
+      truck.cargo = [];
       truck.progress = 0;
 
-      selectedPackageToLoad = null;
+      selectedPackagesToLoad = [];
       totalTrips = 0;
       totalDistanceKm = 0;
 
@@ -671,9 +679,25 @@
         `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}.${String(ms).padStart(2,'0')}`;
     }
 
-    // --- ACCIONES Y MOVIMIENTO ---
-    function selectPackageOption(pkg) {
-      selectedPackageToLoad = pkg;
+    // --- ACCIONES Y SELECCIÓN MÚLTIPLE DE PAQUETES (MÁX 2) ---
+    function togglePackageSelection(pkg) {
+      if (truck.targetCity !== null) return;
+
+      if (!pkg) {
+        // Opción: Vaciar selección
+        selectedPackagesToLoad = [];
+      } else {
+        const idx = selectedPackagesToLoad.findIndex(p => p.id === pkg.id);
+        if (idx >= 0) {
+          selectedPackagesToLoad.splice(idx, 1);
+        } else {
+          if (selectedPackagesToLoad.length < 2) {
+            selectedPackagesToLoad.push(pkg);
+          } else {
+            playBeep(200, 'square', 0.1); // Aviso de límite alcanzado
+          }
+        }
+      }
       updateActionPanel();
     }
 
@@ -683,11 +707,15 @@
 
       startTimerIfNeeded();
 
-      if (selectedPackageToLoad) {
-        truck.cargo = selectedPackageToLoad;
-        selectedPackageToLoad.currentCity = null;
-        selectedPackageToLoad = null;
+      if (selectedPackagesToLoad.length > 0) {
+        truck.cargo = [...selectedPackagesToLoad];
+        selectedPackagesToLoad.forEach(pkg => {
+          pkg.currentCity = null; // En tránsito
+        });
+        selectedPackagesToLoad = [];
         playBeep(400, 'sine', 0.08);
+      } else {
+        truck.cargo = [];
       }
 
       truck.targetCity = targetCityId;
@@ -714,14 +742,22 @@
           truck.currentCity = truck.targetCity;
           truck.targetCity = null;
 
-          if (truck.cargo) {
-            truck.cargo.currentCity = truck.currentCity;
-            if (truck.cargo.dest === truck.currentCity) {
+          // Descargar los paquetes transportados
+          if (truck.cargo.length > 0) {
+            let deliveredCorrect = false;
+            truck.cargo.forEach(pkg => {
+              pkg.currentCity = truck.currentCity;
+              if (pkg.dest === truck.currentCity) {
+                deliveredCorrect = true;
+              }
+            });
+
+            if (deliveredCorrect) {
               playBeep(800, 'sine', 0.12);
             } else {
               playBeep(320, 'sine', 0.08);
             }
-            truck.cargo = null;
+            truck.cargo = [];
           }
 
           checkVictory();
@@ -744,7 +780,7 @@
       }
     }
 
-    // --- RENDERIZADO (Canvas 800x800) ---
+    // --- RENDERIZADO EN CANVAS (800x800) ---
     function render() {
       ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
@@ -764,7 +800,7 @@
         });
       });
 
-      // Ciudades
+      // Ciudades y paquetes depositados
       CITIES.forEach(city => {
         const pos = cityPositions[city.id];
         
@@ -782,7 +818,6 @@
         ctx.textBaseline = 'middle';
         ctx.fillText(city.id, pos.x, pos.y);
 
-        // Paquetes en la ciudad
         const cityPackages = packages.filter(p => p.currentCity === city.id);
         if (cityPackages.length > 0) {
           const radialDist = 70;
@@ -833,7 +868,7 @@
       drawTruck(truckX, truckY, truckAngle, truck.cargo);
     }
 
-    function drawTruck(x, y, angle, cargoPackage) {
+    function drawTruck(x, y, angle, cargoPackages) {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(angle);
@@ -855,7 +890,7 @@
       ctx.fillRect(-22, 13, 10, 5);
       ctx.fillRect(10, 13, 10, 5);
 
-      // Remolque
+      // Remolque (Suficientemente ancho para 2 cajas)
       ctx.fillStyle = '#FFC107';
       ctx.strokeStyle = '#D39E00';
       ctx.lineWidth = 2.5;
@@ -875,22 +910,26 @@
       ctx.fillStyle = '#81D4FA';
       ctx.fillRect(16, -9, 7, 18);
 
-      // Carga
-      if (cargoPackage) {
-        const destCity = CITIES.find(c => c.id === cargoPackage.dest);
-        ctx.fillStyle = destCity.color;
-        ctx.strokeStyle = destCity.border;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.roundRect(-20, -9, 18, 18, 3);
-        ctx.fill();
-        ctx.stroke();
+      // Carga en remolque (hasta 2 paquetes dibujados lado a lado)
+      if (cargoPackages && cargoPackages.length > 0) {
+        cargoPackages.forEach((pkg, idx) => {
+          const destCity = CITIES.find(c => c.id === pkg.dest);
+          ctx.fillStyle = destCity.color;
+          ctx.strokeStyle = destCity.border;
+          ctx.lineWidth = 2;
 
-        ctx.fillStyle = destCity.textColor;
-        ctx.font = 'bold 12px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(destCity.id, -11, 0);
+          const posX = (idx === 0) ? -22 : -8; // Posición de la caja 1 y caja 2
+          ctx.beginPath();
+          ctx.roundRect(posX, -10, 12, 20, 2);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = destCity.textColor;
+          ctx.font = 'bold 11px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(destCity.id, posX + 6, 0);
+        });
       }
 
       ctx.restore();
@@ -913,35 +952,40 @@
     function updateActionPanel() {
       const pkgContainer = document.getElementById('pkgSelector');
       const destContainer = document.getElementById('destButtons');
+      const loadCounter = document.getElementById('loadCounter');
+      
       pkgContainer.innerHTML = '';
       destContainer.innerHTML = '';
 
       const isMoving = truck.targetCity !== null;
       const availablePackages = packages.filter(p => p.currentCity === truck.currentCity);
 
-      // Opción: Ir Vacío
+      loadCounter.innerText = `(${selectedPackagesToLoad.length} / 2 selec.)`;
+
+      // Opción: Ir Vacío / Desmarcar
       const emptyOpt = document.createElement('div');
-      emptyOpt.className = `pkg-option ${selectedPackageToLoad === null ? 'selected' : ''}`;
-      emptyOpt.innerHTML = `<span>🚚 Ir Vacío (Sin Cargar)</span>`;
-      emptyOpt.onclick = () => { if (!isMoving) selectPackageOption(null); };
+      emptyOpt.className = `pkg-option ${selectedPackagesToLoad.length === 0 ? 'selected' : ''}`;
+      emptyOpt.innerHTML = `<span>🚚 Sin Cargar (Ir Vacío)</span>`;
+      emptyOpt.onclick = () => { if (!isMoving) togglePackageSelection(null); };
       pkgContainer.appendChild(emptyOpt);
 
       availablePackages.forEach(pkg => {
         const destCity = CITIES.find(c => c.id === pkg.dest);
         const isAlreadyInDest = (pkg.dest === truck.currentCity);
-        const isSel = selectedPackageToLoad && selectedPackageToLoad.id === pkg.id;
+        const isSel = selectedPackagesToLoad.some(p => p.id === pkg.id);
         
         const opt = document.createElement('div');
         opt.className = `pkg-option ${isSel ? 'selected' : ''}`;
         
         opt.innerHTML = `
           <span style="display:flex; align-items:center; gap:6px;">
+            <input type="checkbox" ${isSel ? 'checked' : ''} style="pointer-events:none;">
             <span style="width:12px; height:12px; border-radius:50%; background:${destCity.color}; border:1px solid #000; display:inline-block;"></span>
-            Para ${destCity.name} (${destCity.id}) ${isAlreadyInDest ? '<span style="color:#27ae60; font-size:0.75rem;">(¡En Destino!)</span>' : ''}
+            Para ${destCity.name} (${destCity.id}) ${isAlreadyInDest ? '<span style="color:#27ae60; font-size:0.75rem;">(¡Destino!)</span>' : ''}
           </span>
           <span style="font-size:0.75rem; color:#7f8c8d;">#${pkg.id}</span>
         `;
-        opt.onclick = () => { if (!isMoving) selectPackageOption(pkg); };
+        opt.onclick = () => { if (!isMoving) togglePackageSelection(pkg); };
         pkgContainer.appendChild(opt);
       });
 
@@ -1033,7 +1077,8 @@
 
       truck.currentCity = 'B';
       truck.targetCity = null;
-      truck.cargo = null;
+      truck.cargo = [];
+      selectedPackagesToLoad = [];
       totalTrips = 0;
       totalDistanceKm = 0;
 
